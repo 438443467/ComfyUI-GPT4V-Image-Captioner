@@ -4,6 +4,5 @@ Pillow
 torch
 typing
 numpy
-openai
-concurrent.futures
+openai==1.12.0
 tqdm
