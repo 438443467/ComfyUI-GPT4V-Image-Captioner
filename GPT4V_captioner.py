@@ -128,6 +128,14 @@ def remove_exclude_words(caption, exclude_words):
     clean_caption = re.sub(r'(, )+', ', ', clean_caption)
     return clean_caption.strip(', ')
     
+#添加提示词
+def add_words_to_caption(caption, add_words):
+    # Add a comma after the caption and append the additional words
+    updated_caption = caption + ', ' + add_words
+    
+    return updated_caption
+
+    
 # 为提示词增加权重
 def add_weight_to_prompt(prompt, weight):
     formatted_weight = "{:.2f}".format(weight)
@@ -198,6 +206,11 @@ class GPTCaptioner:
                                        "default": "",
                                        "multiline": True, "dynamicPrompts": False
                                    }),
+                "add_words": ("STRING",
+                                   {
+                                       "default": "",
+                                       "multiline": True, "dynamicPrompts": False
+                                   }),
                 "image": ("IMAGE", {})
             }
         }
@@ -225,7 +238,7 @@ class GPTCaptioner:
 
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
     @staticmethod
-    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, quality='auto', timeout=10):
+    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, quality='auto', timeout=10):
         global cached_result, cached_seed, cached_image
         # 判断seed值和image值是否发生变化
         if cached_seed is not None and cached_image is not None and cached_seed == seed and cached_image == image:
@@ -303,7 +316,9 @@ class GPTCaptioner:
 
             # 剔除caption中包含在exclude_words中的单词
             caption = remove_exclude_words(caption, exclude_words)
-
+            
+            # 增加提示词
+            caption = add_words_to_caption(caption, add_words)
 
             return caption
         except Exception as e:
@@ -311,7 +326,7 @@ class GPTCaptioner:
 
 
     # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
-    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, weight,enable_weight):
+    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, weight,enable_weight,add_words):
         try:
 
             # 初始化 prompt
@@ -325,7 +340,7 @@ class GPTCaptioner:
             image = process_image(image)
 
             # 请求 prompt
-            prompt = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type)
+            prompt = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type,add_words)
             
             # 给 prompt 增加权重
             if enable_weight:
