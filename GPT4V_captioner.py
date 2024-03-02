@@ -192,7 +192,7 @@ class GPTCaptioner:
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
                 "prompt_type": (["generic", "figure"], {"default": "generic"}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
-                "weight": ("FLOAT", {"max": 0xffffffffffffffff, "min": 1, "step": 0.1, "default": 1, "display": "number"}),
+                "weight": ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.1, "default": 1}), 
                 "exclude_words": ("STRING",
                                    {
                                        "default": "",
