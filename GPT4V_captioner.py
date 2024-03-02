@@ -130,9 +130,9 @@ def remove_exclude_words(caption, exclude_words):
     
 # 为提示词增加权重
 def add_weight_to_prompt(prompt, weight):
-    weighted_prompt = f"{prompt}={weight}"
+    formatted_weight = "{:.2f}".format(weight)
+    weighted_prompt = f"{prompt}={formatted_weight}"
     return f"({weighted_prompt})"
-    
 
 class DalleImage:
 
@@ -192,7 +192,7 @@ class GPTCaptioner:
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
                 "prompt_type": (["generic", "figure"], {"default": "generic"}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
-                "weight": ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.1, "default": 1}), 
+                "weight" : ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.01, "default": 1}), 
                 "exclude_words": ("STRING",
                                    {
                                        "default": "",
