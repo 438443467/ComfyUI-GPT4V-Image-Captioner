@@ -123,9 +123,16 @@ def process_image(base64_image):
 # 剔除caption中包含在exclude_words中的单词的函数
 def remove_exclude_words(caption, exclude_words):
     exclude_words_list = [word.strip(" ,，") for word in exclude_words.split(",")]
-    clean_caption = re.sub(r'\b(?:{})\b'.format('|'.join(exclude_words_list)), '', caption)
+    pattern = r'\b(?:{})\b'.format('|'.join(exclude_words_list))
+    clean_caption = re.sub(pattern, '', caption, flags=re.IGNORECASE)
     clean_caption = re.sub(r'(, )+', ', ', clean_caption)
     return clean_caption.strip(', ')
+    
+# 为提示词增加权重
+def add_weight_to_prompt(prompt, weight):
+    weighted_prompt = f"{prompt}={weight}"
+    return f"({weighted_prompt})"
+    
 
 class DalleImage:
 
@@ -174,8 +181,6 @@ class GPTCaptioner:
         self.saved_api_key = ''
         self.saved_exclude_words = ''
 
-    Prompt = {
-        "Prompt": "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."}
     #定义输入参数类型和默认值
     @classmethod
     def INPUT_TYPES(cls):
@@ -185,6 +190,9 @@ class GPTCaptioner:
                 "api_key": ("STRING", {"default": "", "multiline": False}),
                 "api_url": ("STRING", {"default": "", "multiline": False}),
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
+                "prompt_type": (["generic", "figure"], {"default": "generic"}),
+                "enable_weight": ("BOOLEAN", {"default": False}),
+                "weight": ("FLOAT", {"max": 0xffffffffffffffff, "min": 1, "step": 0.1, "default": 1, "display": "number"}),
                 "exclude_words": ("STRING",
                                    {
                                        "default": "",
@@ -217,16 +225,25 @@ class GPTCaptioner:
 
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
     @staticmethod
-    def run_openai_api(image, api_key, api_url, exclude_words, seed, quality='auto', timeout=10):
+    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, quality='auto', timeout=10):
         global cached_result, cached_seed, cached_image
         # 判断seed值和image值是否发生变化
         if cached_seed is not None and cached_image is not None and cached_seed == seed and cached_image == image:
             caption = cached_result
             caption = remove_exclude_words(caption, exclude_words)
-            return caption
-
-        prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
+            return caption      
+        
+        generic_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
+        figure_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, composition, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, attire, actions, pose, expressions, accessories, makeup, composition type, etc.  Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. The final tag results should exclude the following tags: color, hair color, clothing color, wig, style, watermarks, signatures, text, logos, backgrounds, lighting, filters, styles. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
         image_base64 = image
+        
+        if prompt_type == 'generic':
+            prompt = generic_prompt
+        elif prompt_type == 'figure':   
+            prompt = figure_prompt
+        
+        
+        
         data = {
             "model": "gpt-4-vision-preview",
             "messages": [
@@ -294,7 +311,7 @@ class GPTCaptioner:
 
 
     # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
-    def sanmi(self, api_key, api_url, exclude_words, image, seed):
+    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, weight,enable_weight):
         try:
 
             # 初始化 prompt
@@ -308,7 +325,11 @@ class GPTCaptioner:
             image = process_image(image)
 
             # 请求 prompt
-            prompt = self.run_openai_api(image, api_key, api_url, exclude_words, seed)
+            prompt = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type)
+            
+            # 给 prompt 增加权重
+            if enable_weight:
+                prompt = add_weight_to_prompt(prompt, weight)
 
             return (prompt,)
         except Exception as e:
