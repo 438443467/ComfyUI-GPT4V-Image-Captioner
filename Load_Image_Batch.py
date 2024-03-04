@@ -405,14 +405,11 @@ class SAMIN_Load_Image_Batch:
         def get_image_by_number(self, image_number):
             for file_name in self.image_paths:
                 file_name_only = os.path.basename(file_name)
-                print("当前的file_name为：", file_name_only)
                 # 提取图像名称中第一个逗号前的字符串
                 file_number = file_name_only.split(',')[0]
-                print("当前的file_number1为：", file_number)
                 # 提取数字部分
                 file_number = ''.join(filter(str.isdigit, file_number))
-                print("当前的file_number2为：", file_number)
-                if str(image_number) == file_number:
+                if int(image_number) == int(file_number):
                     i = Image.open(file_name)
                     i = ImageOps.exif_transpose(i)
                     return (i, os.path.basename(file_name))
