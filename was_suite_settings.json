@@ -1,0 +1,34 @@
+{
+    "custom_tokens": {},
+    "Batch Counters": {
+        "Batch 001": 4,
+        "Batch 004": 5,
+        "dogs": 5,
+        "cats": 0
+    },
+    "Batch Paths": {
+        "Batch 001": "G:\\desktop\\\u624b\u529e\u5de5\u4f5c\u6d41\\1",
+        "Batch 004": "G:\\desktop\\\u624b\u529e\u5de5\u4f5c\u6d41\\1",
+        "dogs": "G:\\desktop\\\u624b\u529e\u5de5\u4f5c\u6d41\\1",
+        "cats": "G:\\desktop\\\u624b\u529e\u5de5\u4f5c\u6d41\\1 - \u526f\u672c"
+    },
+    "Batch Patterns": {
+        "Batch 001": "*",
+        "Batch 004": "*",
+        "dogs": "*",
+        "cats": "cat*"
+    },
+    "Counters": {
+        "Number 007": 0
+    },
+    "List": {
+        "Number 007": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5
+        ]
+    }
+}
