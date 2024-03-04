@@ -141,9 +141,9 @@ def remove_color_words(caption):
                   "Surfer hair", "Taper cut", "Temple fade", "Tonsure", "Updo", "Undercut", "Victory rolls", "Waves",
                   "Widow's peak", "Wings", "braided"]
     pattern = r"\b(" + "|".join(color_words) + r")\b"
-    filtered_words = re.sub(pattern, "", words, flags=re.IGNORECASE)
-    words = [word.strip().replace(",", "") for word in filtered_words.split(",") if word.strip() != ""]
-    filtered_words = [word for word in words if not any(hairstyle.lower() in word.lower() for hairstyle in hairstyles)]
+    filtered_words = re.sub(pattern, "", caption, flags=re.IGNORECASE)
+    filtered_words = [word.strip().replace(",", "") for word in filtered_words.split(",") if word.strip() != ""]
+    filtered_words = [word for word in filtered_words if not any(hairstyle.lower() in word.lower() for hairstyle in hairstyles)]
     return ', '.join(filtered_words)
 
 # 剔除caption中包含在exclude_words中的单词的函数
@@ -344,7 +344,7 @@ class GPTCaptioner:
 
             full_caption = caption
             # 剔除caption中所有颜色和发型
-            if prompt_type == 'generic':
+            if prompt_type == 'figure':
                 caption = remove_color_words(caption)
 
             # 剔除caption中包含在exclude_words中的单词
@@ -355,7 +355,7 @@ class GPTCaptioner:
 
             return (caption,full_caption)
         except Exception as e:
-            return f"Failed to parse the API response: {e}\n{response.text}"
+            return (f"Failed to parse the API response: {e}\n{response.text}",None)
 
 
     # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
