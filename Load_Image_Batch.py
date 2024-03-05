@@ -332,7 +332,7 @@ class SAMIN_Load_Image_Batch:
         fl = self.BatchImageLoader(path, label, pattern)
         # 所有符合规则的图像升序的绝对路径列表
         new_paths = fl.image_paths
-        print("当前所有符合规则的图像升序的绝对路径列表：",new_paths)
+
         # 根据加载模式选择加载图像的方式
         if mode == 'single_image':
             image, filename = fl.get_image_by_id(index)
