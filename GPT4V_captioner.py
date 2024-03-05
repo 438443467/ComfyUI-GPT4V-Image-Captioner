@@ -210,6 +210,7 @@ class DalleImage:
 cached_result = None
 cached_seed = None
 cached_image = None
+cached_full_caption = None
 
 class GPTCaptioner:
     def __init__(self):
@@ -266,13 +267,14 @@ class GPTCaptioner:
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
     @staticmethod
     def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, quality='auto', timeout=10):
-        global cached_result, cached_seed, cached_image
+        global cached_result, cached_seed, cached_image , cached_full_caption
         # 判断seed值和image值是否发生变化
         if cached_seed is not None and cached_image is not None and cached_seed == seed and cached_image == image:
             caption = cached_result
             caption = remove_exclude_words(caption, exclude_words)
             caption = add_words_to_caption(caption, add_words)
-            return caption      
+            full_caption = cached_full_caption
+            return (caption,full_caption)
         
         generic_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
         figure_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, composition, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, attire, actions, pose, expressions, accessories, makeup, composition type, etc.  Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. The final tag results should exclude the following tags: color, hair color, hairstyle, clothing color, wig, style, watermarks, signatures, text, logos, backgrounds, lighting, filters, styles. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
@@ -337,12 +339,13 @@ class GPTCaptioner:
 
             caption = response_data["choices"][0]["message"]["content"]
 
+            full_caption = caption
             # 更新缓存变量
             cached_result = caption
             cached_seed = seed
             cached_image = image
+            cached_full_caption = full_caption
 
-            full_caption = caption
             # 剔除caption中所有颜色和发型
             if prompt_type == 'figure':
                 caption = remove_color_words(caption)
