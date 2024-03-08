@@ -14,6 +14,16 @@
 # THE SOFTWARE.
 
 
+#import cv2
+#from deepface import DeepFace
+
+import re
+import random
+import latent_preview
+from datetime import datetime
+import json
+import piexif
+import piexif.helper
 
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageChops, ImageFont
 from PIL.PngImagePlugin import PngInfo
@@ -315,22 +325,23 @@ class SAMIN_Load_Image_Batch:
             }
         }
 
-    RETURN_TYPES = ("IMAGE","STRING")
-    RETURN_NAMES = ("image","filename_text")
+    RETURN_TYPES = ("IMAGE","STRING","STRING")
+    RETURN_NAMES = ("image","filename_text","image_path")
     FUNCTION = "load_batch_images"
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
     def load_batch_images(self, path, pattern='*', index=0, mode="single_image", label='Batch 001', allow_RGBA_output='false', filename_text_extension='true', image_number=None):
-
+        single_image_path = ''
         allow_RGBA_output = (allow_RGBA_output == 'true')
 
-        # 如果指定的路径不存在，则返回一个包含None的元组
+        if path == '':
+            path = 'C:'
         if not os.path.exists(path):
-            return (None, )
+                return (None,)
 
         # 创建BatchImageLoader对象并获取图像路径
         fl = self.BatchImageLoader(path, label, pattern)
-        # 所有符合规则的图像升序的绝对路径列表
+        # 符合规则的图像升序的绝对路径列表
         new_paths = fl.image_paths
 
         # 根据加载模式选择加载图像的方式
@@ -343,12 +354,12 @@ class SAMIN_Load_Image_Batch:
             image, filename = fl.get_next_image()
             if image == None:
                 print(f"No valid image was found for the next ID. Did you remove images from the source directory?")
-                return (None, None)
+                return (None, None,None)
         if mode == 'number_image':
-            image, filename = fl.get_image_by_number(image_number)
+            image, filename, single_image_path = fl.get_image_by_number(image_number)
             if image == None:
                 print(f"No valid image was found for the next ID. Did you remove images from the source directory?")
-                return (self.create_black_image(), None)
+                return (self.create_black_image(), None, None)
         else:
             newindex = int(random.random() * len(fl.image_paths))
             image, filename = fl.get_image_by_id(newindex)
@@ -369,7 +380,7 @@ class SAMIN_Load_Image_Batch:
             filename = os.path.splitext(filename)[0]
 
         # 返回将图像转换为张量后的图像和文件名
-        return (pil2tensor(image), filename)
+        return (pil2tensor(image), filename, single_image_path)
 
 
     class BatchImageLoader:
@@ -404,6 +415,7 @@ class SAMIN_Load_Image_Batch:
 
         def get_image_by_number(self, image_number):
             for file_name in self.image_paths:
+                single_image_path = file_name
                 file_name_only = os.path.basename(file_name)
                 # 提取图像名称中第一个逗号前的字符串
                 file_number = file_name_only.split(',')[0]
@@ -412,8 +424,8 @@ class SAMIN_Load_Image_Batch:
                 if int(image_number) == int(file_number):
                     i = Image.open(file_name)
                     i = ImageOps.exif_transpose(i)
-                    return (i, os.path.basename(file_name))
-            return self.create_black_image(), f"编号{image_number}对应图像不存在，输出512*512黑色图像"
+                    return (i, os.path.basename(file_name),single_image_path)
+            return self.create_black_image(), f"编号{image_number}对应图像不存在，输出512*512黑色图像" , None
 
         def get_image_by_id(self, image_id):
 
@@ -538,17 +550,170 @@ class SANMI_CounterNode:
             now_number_text = f"现在输出的数字是：{number}"
             return (number, now_number_text)
 
+
+class SAMIN_Read_Prompt:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":
+            {
+                "verbose": (["true", "false"],),
+                "image_path": ("STRING", {"default": '', "multiline": False}),
+
+            },
+        }
+
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+    ''' Return order:
+        positive prompt(string), negative prompt(string), seed(int), steps(int), cfg(float), 
+        width(int), height(int)
+    '''
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "INT", "INT", "FLOAT", "INT", "INT")
+    RETURN_NAMES = ("image", "positive", "negative", "seed", "steps", "cfg", "width", "height")
+    FUNCTION = "get_image_data"
+
+    def get_image_data(self, image_path, verbose):
+        with open(image_path, 'rb') as file:
+            img = Image.open(file)
+            if verbose:
+                print(f"Loaded image with shape: {img.size}")
+            extension = image_path.split('.')[-1]
+            # Convert the image to RGB
+            image = img.convert("RGB")
+            # Normalize the image
+            image = np.array(image).astype(np.float32) / 255.0
+            # Convert the image to PyTorch tensor
+            image = torch.from_numpy(image).permute(2, 0, 1)  # Change the dimensions to (C, H, W)
+            # Add an extra dimension for batch size
+            image = image.unsqueeze(0)
+
+        parameters = ""
+        comfy = False
+        if extension.lower() == 'png':
+            try:
+                parameters = img.info['parameters']
+                if not parameters.startswith("Positive prompt"):
+                    parameters = "Positive prompt: " + parameters
+            except:
+                parameters = ""
+                print("Error loading prompt info from png")
+                # return "Error loading prompt info."
+        elif extension.lower() in ("jpg", "jpeg", "webp"):
+            try:
+                exif = piexif.load(img.info["exif"])
+                parameters = (exif or {}).get("Exif", {}).get(piexif.ExifIFD.UserComment, b'')
+                parameters = piexif.helper.UserComment.load(parameters)
+                if not parameters.startswith("Positive prompt"):
+                    parameters = "Positive prompt: " + parameters
+            except:
+                try:
+                    parameters = str(img.info['comment'])
+                    comfy = True
+                    # legacy fixes
+                    parameters = parameters.replace("Positive Prompt", "Positive prompt")
+                    parameters = parameters.replace("Negative Prompt", "Negative prompt")
+                    parameters = parameters.replace("Start at Step", "Start at step")
+                    parameters = parameters.replace("End at Step", "End at step")
+                    parameters = parameters.replace("Denoising Strength", "Denoising strength")
+                except:
+                    parameters = ""
+                    print("Error loading prompt info from jpeg")
+                    # return "Error loading prompt info."
+
+        if (comfy and extension.lower() == 'jpeg'):
+            parameters = parameters.replace('\\n', ' ')
+        else:
+            parameters = parameters.replace('\n', ' ')
+
+        patterns = [
+            "Positive prompt: ",
+            "Negative prompt: ",
+            "Steps: ",
+            "Start at step: ",
+            "End at step: ",
+            "Sampler: ",
+            "Scheduler: ",
+            "CFG scale: ",
+            "Seed: ",
+            "Size: ",
+            "Model: ",
+            "Model hash: ",
+            "Denoising strength: ",
+            "Version: ",
+            "ControlNet 0",
+            "Controlnet 1",
+            "Batch size: ",
+            "Batch pos: ",
+            "Hires upscale: ",
+            "Hires steps: ",
+            "Hires upscaler: ",
+            "Template: ",
+            "Negative Template: ",
+        ]
+        if (comfy and extension.lower() == 'jpeg'):
+            parameters = parameters[2:]
+            parameters = parameters[:-1]
+
+        keys = re.findall("|".join(patterns), parameters)
+        values = re.split("|".join(patterns), parameters)
+        values = [x for x in values if x]
+        results = {}
+        result_string = ""
+        for item in range(len(keys)):
+            result_string += keys[item] + values[item].rstrip(', ')
+            result_string += "\n"
+            results[keys[item].replace(": ", "")] = values[item].rstrip(', ')
+
+        if (verbose == "true"):
+            print(result_string)
+
+        try:
+            positive = results['Positive prompt']
+        except:
+            positive = ""
+        try:
+            negative = results['Negative prompt']
+        except:
+            negative = ""
+        try:
+            seed = int(results['Seed'])
+        except:
+            seed = -1
+        try:
+            steps = int(results['Steps'])
+        except:
+            steps = 20
+        try:
+            cfg = float(results['CFG scale'])
+        except:
+            cfg = 8.0
+        try:
+            width, height = img.size
+        except:
+            width, height = 512, 512
+
+        ''' Return order:
+            positive prompt(string), negative prompt(string), seed(int), steps(int), cfg(float), 
+            width(int), height(int)
+        '''
+
+        return (image, positive, negative, seed, steps, cfg, width, height)
+
+
+
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
     "Samin Load Image Batch": SAMIN_Load_Image_Batch,
     "Samin Counter": SANMI_CounterNode,
+    "Image Load with Metadata ": SAMIN_Read_Prompt,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Samin Load Image Batch": "Samin Load Image Batch",
     "Samin Counter": "Samin Counter",
+    "Image Load with Metadata ": "SAMIN_Read_Prompt",
 }
 
 
