@@ -356,9 +356,9 @@ class GPTCaptioner:
             # 增加提示词
             caption = add_words_to_caption(caption, add_words)
 
-            return (caption,full_caption)
+            return caption,full_caption
         except Exception as e:
-            return (f"Failed to parse the API response: {e}\n{response.text}",None)
+            return None, f"Failed to parse the API response: {e}\n{response.text}"
 
 
     # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
