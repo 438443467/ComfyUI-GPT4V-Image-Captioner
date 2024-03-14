@@ -227,6 +227,7 @@ class GPTCaptioner:
                 "api_url": ("STRING", {"default": "", "multiline": False}),
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
                 "prompt_type": (["generic", "figure"], {"default": "generic"}),
+                "img_quality": (["auto", "high", "low"], {"default": "auto"}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
                 "weight" : ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.01, "default": 1}), 
                 "exclude_words": ("STRING",
@@ -266,7 +267,7 @@ class GPTCaptioner:
 
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
     @staticmethod
-    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, quality='auto', timeout=10):
+    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, quality, timeout=10):
         global cached_result, cached_seed, cached_image , cached_full_caption
         # 判断seed值和image值是否发生变化
         if cached_seed is not None and cached_image is not None and cached_seed == seed and cached_image == image:
@@ -356,13 +357,13 @@ class GPTCaptioner:
             # 增加提示词
             caption = add_words_to_caption(caption, add_words)
 
-            return caption,full_caption
+            return (caption,full_caption)
         except Exception as e:
-            return None, f"Failed to parse the API response: {e}\n{response.text}"
+            return (f"Failed to parse the API response: {e}\n{response.text}",None)
 
 
     # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
-    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, weight,enable_weight,add_words):
+    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, img_quality, weight,enable_weight, add_words):
         try:
 
             # 初始化 prompt
@@ -376,7 +377,7 @@ class GPTCaptioner:
             image = process_image(image)
 
             # 请求 prompt
-            caption,full_caption = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type,add_words)
+            caption,full_caption = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, img_quality)
             
             # 给 prompt 增加权重
             if enable_weight:
