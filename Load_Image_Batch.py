@@ -699,6 +699,137 @@ class SAMIN_Read_Prompt:
         return (image, positive, negative, seed, steps, cfg, width, height)
 
 
+class SAMIN_String_Attribute_Selector:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text_A": ("STRING", {"multiline": False, "default": "text", "forceInput": True}),
+                "text_B": ("STRING", {"multiline": False, "default": "text", "forceInput": True}),
+                "prompt_type": (["Random", "PriorityB"], {"default": "PriorityB"}),
+                "keywordList_A": ("STRING",
+                                   {
+                                       "default": "",
+                                       "multiline": True, "dynamicPrompts": False
+                                   }),
+                "keywordList_B": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_C": ("STRING",
+                                    {
+                                        "default": "",
+                                        "multiline": True, "dynamicPrompts": False
+                                    }),
+                "keywordList_D": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_E": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_F": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_G": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_H": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_I": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+                "keywordList_J": ("STRING",
+                                  {
+                                      "default": "",
+                                      "multiline": True, "dynamicPrompts": False
+                                  }),
+
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt",)
+    FUNCTION = "String_Attribute_Selector"
+    OUTPUT_NODE = False
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def __init__(self):
+        self.text_A = ''
+        self.text_B = ''
+        self.prompt_type = ''
+        self.keywordDict = {}
+
+    @staticmethod
+    def extract_attributes(text: str, keywordDict: dict) -> dict:
+        attributes = {}
+        for key in keywordDict:
+            for word in keywordDict[key]:
+                if '<' + word + '>' in text:
+                    if key not in attributes:
+                        attributes[key] = []
+                    attributes[key].append(word)
+        return attributes
+
+    @staticmethod
+    def compare_attributes(text_A="", text_B="", prompt_type="PriorityB", keywordList_A="", keywordList_B="", keywordList_C="", keywordList_D="",keywordList_E="", keywordList_F="", keywordList_G="", keywordList_H="", keywordList_I="", keywordList_J=""):
+        keywordList_A = re.split(",|，", keywordList_A)
+        keywordList_B = re.split(",|，", keywordList_B)
+        keywordList_C = re.split(",|，", keywordList_C)
+        keywordList_D = re.split(",|，", keywordList_D)
+        keywordList_E = re.split(",|，", keywordList_E)
+        keywordList_F = re.split(",|，", keywordList_F)
+        keywordList_G = re.split(",|，", keywordList_G)
+        keywordList_H = re.split(",|，", keywordList_H)
+        keywordList_I = re.split(",|，", keywordList_I)
+        keywordList_J = re.split(",|，", keywordList_J)
+        keywordDict = {
+            "keywordList_A": keywordList_A,
+            "keywordList_B": keywordList_B,
+            "keywordList_C": keywordList_C,
+            "keywordList_D": keywordList_D,
+            "keywordList_E": keywordList_E,
+            "keywordList_F": keywordList_F,
+            "keywordList_G": keywordList_G,
+            "keywordList_H": keywordList_H,
+            "keywordList_I": keywordList_I,
+            "keywordList_J": keywordList_J
+        }
+        attributes_A = SAMIN_String_Attribute_Selector.extract_attributes(text_A, keywordDict)
+        attributes_B = SAMIN_String_Attribute_Selector.extract_attributes(text_B, keywordDict)
+        result = ''
+        for key in keywordDict:
+            if key in attributes_A and key in attributes_B:
+                if prompt_type == "PriorityB":
+                    result += ''.join(['<' + attr + '>' for attr in attributes_B[key]])
+                else:
+                    result += ''.join(
+                        ['<' + attr + '>' for attr in random.choice([attributes_A[key], attributes_B[key]])])
+            elif key in attributes_A:
+                result += ''.join(['<' + attr + '>' for attr in attributes_A[key]])
+            elif key in attributes_B:
+                result += ''.join(['<' + attr + '>' for attr in attributes_B[key]])
+        print(result)
+        return result
+
+    def String_Attribute_Selector(self, text_A, text_B, prompt_type, keywordList_A, keywordList_B, keywordList_C, keywordList_D, keywordList_E, keywordList_F, keywordList_G, keywordList_H, keywordList_I, keywordList_J):
+        prompt = self.compare_attributes(text_A, text_B, prompt_type, keywordList_A, keywordList_B, keywordList_C,keywordList_D, keywordList_E, keywordList_F, keywordList_G, keywordList_H, keywordList_I, keywordList_J)
+        new_prompt = prompt.replace("<", "__").replace(">", "__, ")
+        return (new_prompt,)
+
 
 
 #定义功能和模块名称
@@ -707,6 +838,7 @@ NODE_CLASS_MAPPINGS = {
     "Samin Load Image Batch": SAMIN_Load_Image_Batch,
     "Samin Counter": SANMI_CounterNode,
     "Image Load with Metadata ": SAMIN_Read_Prompt,
+    "SAMIN String Attribute Selector": SAMIN_String_Attribute_Selector,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
@@ -714,6 +846,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Samin Load Image Batch": "Samin Load Image Batch",
     "Samin Counter": "Samin Counter",
     "Image Load with Metadata ": "SAMIN_Read_Prompt",
+    "SAMIN String Attribute Selector": "AMIN_String_Attribute_Selector",
 }
 
 
