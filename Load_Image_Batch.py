@@ -707,128 +707,53 @@ class SAMIN_String_Attribute_Selector:
                 "text_A": ("STRING", {"multiline": False, "default": "text", "forceInput": True}),
                 "text_B": ("STRING", {"multiline": False, "default": "text", "forceInput": True}),
                 "prompt_type": (["Random", "PriorityB"], {"default": "PriorityB"}),
-                "keywordList_A": ("STRING",
-                                   {
-                                       "default": "",
-                                       "multiline": True, "dynamicPrompts": False
-                                   }),
-                "keywordList_B": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_C": ("STRING",
-                                    {
-                                        "default": "",
-                                        "multiline": True, "dynamicPrompts": False
-                                    }),
-                "keywordList_D": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_E": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_F": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_G": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_H": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_I": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-                "keywordList_J": ("STRING",
-                                  {
-                                      "default": "",
-                                      "multiline": True, "dynamicPrompts": False
-                                  }),
-
             },
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
+    RETURN_TYPES = ("STRING","STRING","STRING","STRING","STRING","STRING")
+    RETURN_NAMES = ("prompt","full_prompt","clear_text_A", "clear_text_B", "name_A", "name_B")
     FUNCTION = "String_Attribute_Selector"
     OUTPUT_NODE = False
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
     def __init__(self):
-        self.text_A = ''
-        self.text_B = ''
-        self.prompt_type = ''
-        self.keywordDict = {}
+        pass
 
-    @staticmethod
-    def extract_attributes(text: str, keywordDict: dict) -> dict:
-        attributes = {}
-        for key in keywordDict:
-            for word in keywordDict[key]:
-                if '<' + word + '>' in text:
-                    if key not in attributes:
-                        attributes[key] = []
-                    attributes[key].append(word)
-        return attributes
+    def String_Attribute_Selector(self, text_A, text_B, prompt_type):
+        pattern = r'\[(.*?):(.*?)\]'
+        dict_A = dict(re.findall(pattern, text_A))
+        dict_B = dict(re.findall(pattern, text_B))
 
-    @staticmethod
-    def compare_attributes(text_A="", text_B="", prompt_type="PriorityB", keywordList_A="", keywordList_B="", keywordList_C="", keywordList_D="",keywordList_E="", keywordList_F="", keywordList_G="", keywordList_H="", keywordList_I="", keywordList_J=""):
-        keywordList_A = re.split(",|，", keywordList_A)
-        keywordList_B = re.split(",|，", keywordList_B)
-        keywordList_C = re.split(",|，", keywordList_C)
-        keywordList_D = re.split(",|，", keywordList_D)
-        keywordList_E = re.split(",|，", keywordList_E)
-        keywordList_F = re.split(",|，", keywordList_F)
-        keywordList_G = re.split(",|，", keywordList_G)
-        keywordList_H = re.split(",|，", keywordList_H)
-        keywordList_I = re.split(",|，", keywordList_I)
-        keywordList_J = re.split(",|，", keywordList_J)
-        keywordDict = {
-            "keywordList_A": keywordList_A,
-            "keywordList_B": keywordList_B,
-            "keywordList_C": keywordList_C,
-            "keywordList_D": keywordList_D,
-            "keywordList_E": keywordList_E,
-            "keywordList_F": keywordList_F,
-            "keywordList_G": keywordList_G,
-            "keywordList_H": keywordList_H,
-            "keywordList_I": keywordList_I,
-            "keywordList_J": keywordList_J
-        }
-        attributes_A = SAMIN_String_Attribute_Selector.extract_attributes(text_A, keywordDict)
-        attributes_B = SAMIN_String_Attribute_Selector.extract_attributes(text_B, keywordDict)
-        result = ''
-        for key in keywordDict:
-            if key in attributes_A and key in attributes_B:
-                if prompt_type == "PriorityB":
-                    result += ''.join(['<' + attr + '>' for attr in attributes_B[key]])
-                else:
-                    result += ''.join(
-                        ['<' + attr + '>' for attr in random.choice([attributes_A[key], attributes_B[key]])])
-            elif key in attributes_A:
-                result += ''.join(['<' + attr + '>' for attr in attributes_A[key]])
-            elif key in attributes_B:
-                result += ''.join(['<' + attr + '>' for attr in attributes_B[key]])
-        print(result)
-        return result
+        new_prompt = []
+        for key in set(list(dict_A.keys()) + list(dict_B.keys())):
+            if key in dict_A and key in dict_B:
+                if prompt_type == "Random":
+                    new_prompt.append(random.choice([dict_A[key], dict_B[key]]))
+                else:  # PriorityB
+                    new_prompt.append(dict_B[key])
+            elif key in dict_A:
+                new_prompt.append(dict_A[key])
+            else:  # key in dict_B
+                new_prompt.append(dict_B[key])
 
-    def String_Attribute_Selector(self, text_A, text_B, prompt_type, keywordList_A, keywordList_B, keywordList_C, keywordList_D, keywordList_E, keywordList_F, keywordList_G, keywordList_H, keywordList_I, keywordList_J):
-        prompt = self.compare_attributes(text_A, text_B, prompt_type, keywordList_A, keywordList_B, keywordList_C,keywordList_D, keywordList_E, keywordList_F, keywordList_G, keywordList_H, keywordList_I, keywordList_J)
-        new_prompt = prompt.replace("<", "__").replace(">", "__, ")
-        return (new_prompt,)
+        pattern = r"\[.*?\]"
+        clear_text_A = re.sub(pattern, "", text_A)
+        clear_text_B = re.sub(pattern, "", text_B)
+
+        prompt = "(" + ','.join(new_prompt[::-1]) + ")"
+        full_prompt = clear_text_A + ',' + clear_text_B + ',' + prompt
+
+        start_index_A = clear_text_A.find(":") + 1
+        end_index_A = clear_text_A.find(":", start_index_A)
+        name_A = clear_text_A[start_index_A:end_index_A]
+
+        start_index_B = clear_text_B.find(":") + 1
+        end_index_B = clear_text_B.find(":", start_index_B)
+        name_B = clear_text_B[start_index_B:end_index_B]
+
+
+
+        return (prompt,full_prompt,clear_text_A,clear_text_B,name_A, name_B)
 
 
 
