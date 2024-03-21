@@ -756,6 +756,72 @@ class SAMIN_String_Attribute_Selector:
         return (prompt,full_prompt,clear_text_A,clear_text_B,name_A, name_B)
 
 
+class SANMIN_SimpleWildcards:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "wildcard_text": ("STRING", {"multiline": True, "dynamicPrompts": True}),
+            },
+        }
+
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+    RETURN_TYPES = ("STRING", "FLOAT", "FLOAT", "FLOAT",)
+    RETURN_NAMES = ("prompt", "cfg", "exposure", "skin",)
+    FUNCTION = "doit"
+
+    def extract_attributes(self, populated_text):
+        attributes = {}
+        matches = re.findall(r"\[.*?\]", populated_text)
+        for match in matches:
+            match = match.rstrip(']')
+            parts = re.findall(r"(\w+)\s*=\s*([^,]+)", match)
+            for key, value in parts:
+                attributes[key] = value
+        return attributes
+
+    def find_matching_files(self, wildcard_text):
+        wildcard_names = re.findall(r"__(.*?)__", wildcard_text)
+        matching_files = []
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for wildcard_name in wildcard_names:
+            file_path = os.path.join(script_dir, "wildcards", f"{wildcard_name}.txt")
+            if os.path.exists(file_path):
+                matching_files.append(file_path)
+            else:
+                matching_files.append(f"未查到该路径: {file_path}")
+        return matching_files
+
+    def replace_wildcards(self, wildcard_text):
+        matching_files = self.find_matching_files(wildcard_text)
+        for file_path in matching_files:
+            if file_path.startswith("未查到该路径:"):
+                continue
+            file_content = self.get_file_content(file_path)
+            wildcard_name = os.path.basename(file_path).split(".")[0]
+            wildcard_text = re.sub(re.escape(f"__{wildcard_name}__"), file_content, wildcard_text)
+        return wildcard_text
+
+    def get_file_content(self, file_path):
+        with open(file_path, "r", encoding="utf-8") as file:
+            file_content = file.read()
+        return file_content.strip()
+
+    def doit(self, wildcard_text):
+        matching_files = self.find_matching_files(wildcard_text)
+        for file_path in matching_files:
+            print("查找到的文件路径：",file_path)
+
+        populated_text = self.replace_wildcards(wildcard_text)
+        attributes = self.extract_attributes(populated_text)
+
+        cfg = float(attributes.get("cfg", 7))
+        exposure = float(attributes.get("exposure", 0))
+        skin = float(attributes.get("skin", 0))
+
+        # 去除属性部分，只返回正文部分
+        prompt = re.sub(r"\[.*?\]", "", populated_text)
+        return (prompt.strip(), cfg, exposure, skin)
 
 #定义功能和模块名称
 # NOTE: names should be globally unique
@@ -764,6 +830,7 @@ NODE_CLASS_MAPPINGS = {
     "Samin Counter": SANMI_CounterNode,
     "Image Load with Metadata ": SAMIN_Read_Prompt,
     "SAMIN String Attribute Selector": SAMIN_String_Attribute_Selector,
+    "SAMIN SimpleWildcards":SANMIN_SimpleWildcards,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
@@ -772,6 +839,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Samin Counter": "Samin Counter",
     "Image Load with Metadata ": "SAMIN_Read_Prompt",
     "SAMIN String Attribute Selector": "AMIN_String_Attribute_Selector",
+    "SAMIN SimpleWildcards":"SANMIN_Simple_Wildcards",
 }
 
 
