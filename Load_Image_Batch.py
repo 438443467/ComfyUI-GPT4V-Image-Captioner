@@ -119,7 +119,6 @@ def getSuiteConfig():
         cstr(f"Unable to load conf file at `{WAS_CONFIG_FILE}`. Using internal config template.").error.print()
         return was_conf_template
     return was_config
-    return was_config
 
 def updateSuiteConfig(conf):
     try:
@@ -535,7 +534,6 @@ class SANMI_CounterNode:
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         # 打印文件名和行号
-
             Nu = SANMI_CounterNode.gogo(kwargs['start_number'], kwargs['label'], kwargs['end_number'])
             number = Nu.get_current_number()
             now_number_text = f"现在输出的数字是：{number}"
@@ -804,6 +802,20 @@ class SANMIN_SimpleWildcards:
 
         populated_text = self.replace_wildcards(wildcard_text)
         attributes = self.extract_attributes(populated_text)
+
+        cfg = float(attributes.get("cfg", 7))
+        exposure = float(attributes.get("exposure", 0))
+        skin = float(attributes.get("skin", 0))
+
+        # 去除属性部分，只返回正文部分
+        prompt = re.sub(r"\[.*?\]", "", populated_text)
+        return (prompt.strip(), cfg, exposure, skin)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        Nu = SANMIN_SimpleWildcards.doit(kwargs['wildcard_text'])
+        populated_text = Nu.replace_wildcards()
+        attributes = Nu.extract_attributes(populated_text)
 
         cfg = float(attributes.get("cfg", 7))
         exposure = float(attributes.get("exposure", 0))
