@@ -734,17 +734,15 @@ class SAMIN_String_Attribute_Selector:
         prompt = "(" + ','.join(new_prompt[::-1]) + ")"
         full_prompt = clear_text_A + ',' + clear_text_B + ',' + prompt
 
-        start_index_A = clear_text_A.find(":") + 1
+        start_index_A = clear_text_A.find("<lora:") + len("<lora:")
         end_index_A = clear_text_A.find(":", start_index_A)
         name_A = clear_text_A[start_index_A:end_index_A]
 
-        start_index_B = clear_text_B.find(":") + 1
+        start_index_B = clear_text_B.find("<lora:") + len("<lora:")
         end_index_B = clear_text_B.find(":", start_index_B)
         name_B = clear_text_B[start_index_B:end_index_B]
 
-
-
-        return (prompt,full_prompt,clear_text_A,clear_text_B,name_A, name_B)
+        return (prompt, full_prompt, clear_text_A, clear_text_B, name_A, name_B)
 
 
 class SANMIN_SimpleWildcards:
