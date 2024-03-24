@@ -17,14 +17,10 @@
 #import cv2
 #from deepface import DeepFace
 
-import re
-import random
 import latent_preview
 from datetime import datetime
-import json
 import piexif
 import piexif.helper
-
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageChops, ImageFont
 from PIL.PngImagePlugin import PngInfo
 from io import BytesIO
@@ -59,11 +55,6 @@ import torch
 from tqdm import tqdm
 import string
 from PIL import Image,ImageOps
-import glob
-import json
-import numpy as np
-import os
-import torch
 import inspect
 
 
@@ -769,7 +760,7 @@ class SANMIN_SimpleWildcards:
     RETURN_TYPES = ("STRING", "FLOAT", "FLOAT", "FLOAT",)
     RETURN_NAMES = ("prompt", "cfg", "exposure", "skin",)
     FUNCTION = "doit"
-
+    # 提取属性，并以字典形式返回
     def extract_attributes(self, populated_text):
         attributes = {}
         matches = re.findall(r"\[.*?\]", populated_text)
@@ -779,7 +770,7 @@ class SANMIN_SimpleWildcards:
             for key, value in parts:
                 attributes[key] = value
         return attributes
-
+    # 查找输入的通配符文本，并返回文本列表。
     def find_matching_files(self, wildcard_text):
         wildcard_names = re.findall(r"__(.*?)__", wildcard_text)
         matching_files = []
@@ -791,7 +782,7 @@ class SANMIN_SimpleWildcards:
             else:
                 matching_files.append(f"未查到该路径: {file_path}")
         return matching_files
-
+    # 查找通配符为对应的文本，并返回随机一行。
     def replace_wildcards(self, wildcard_text):
         matching_files = self.find_matching_files(wildcard_text)
         for file_path in matching_files:
@@ -799,9 +790,10 @@ class SANMIN_SimpleWildcards:
                 continue
             file_content = self.get_file_content(file_path)
             wildcard_name = os.path.basename(file_path).split(".")[0]
-            wildcard_text = re.sub(re.escape(f"__{wildcard_name}__"), file_content, wildcard_text)
+            wildcard_lines = file_content.splitlines()
+            wildcard_text = re.sub(re.escape(f"__{wildcard_name}__"), random.choice(wildcard_lines), wildcard_text)
         return wildcard_text
-
+    # 读取通配符文本内容，并返回字符串。
     def get_file_content(self, file_path):
         with open(file_path, "r", encoding="utf-8") as file:
             file_content = file.read()
