@@ -701,49 +701,67 @@ class SAMIN_String_Attribute_Selector:
 
     RETURN_TYPES = ("STRING","STRING","STRING","STRING","STRING","STRING")
     RETURN_NAMES = ("prompt","full_prompt","clear_text_A", "clear_text_B", "name_A", "name_B")
-    FUNCTION = "String_Attribute_Selector"
+    FUNCTION = "doit"
     OUTPUT_NODE = False
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
     def __init__(self):
         pass
 
-    def String_Attribute_Selector(self, text_A, text_B, prompt_type):
+    @staticmethod
+    def get_attributes(text):
         pattern = r'\[(.*?):(.*?)\]'
-        dict_A = dict(re.findall(pattern, text_A))
-        dict_B = dict(re.findall(pattern, text_B))
+        attributes = {}
+        matches = re.findall(pattern, text)
+        for match in matches:
+            attribute_name = match[0]
+            attribute_value = match[1]
+            if attribute_name in attributes:
+                attributes[attribute_name].append(attribute_value)
+            else:
+                attributes[attribute_name] = [attribute_value]
+        return attributes
 
+    @staticmethod
+    def get_prompt(attributes_A, attributes_B, prompt_type):
         new_prompt = []
-        for key in set(list(dict_A.keys()) + list(dict_B.keys())):
-            if key in dict_A and key in dict_B:
-                if prompt_type == "Random":
-                    new_prompt.append(random.choice([dict_A[key], dict_B[key]]))
-                else:  # PriorityB
-                    new_prompt.append(dict_B[key])
-            elif key in dict_A:
-                new_prompt.append(dict_A[key])
-            else:  # key in dict_B
-                new_prompt.append(dict_B[key])
+        for attribute_name in attributes_A.keys():
+            attribute_values_A = attributes_A[attribute_name]
+            attribute_values_B = attributes_B.get(attribute_name, attribute_values_A)
 
+            if prompt_type == "Random":
+                new_prompt.append(random.choice(attribute_values_A + attribute_values_B))
+            elif prompt_type == "PriorityB":
+                new_prompt.append(attribute_values_B[-1])
+
+        return new_prompt
+
+    @staticmethod
+    def remove_attributes(text):
         pattern = r"\[.*?\]"
-        clear_text_A = re.sub(pattern, "", text_A)
-        clear_text_B = re.sub(pattern, "", text_B)
+        return re.sub(pattern, "", text)
 
+    @staticmethod
+    def get_name(text):
+        start_index = text.find("<lora:") + len("<lora:")
+        end_index = text.find(":", start_index)
+        return text[start_index:end_index]
+
+    def doit(self, text_A, text_B, prompt_type):
+
+        attribute_values_A = self.get_attributes(text_A)
+        attribute_values_B = self.get_attributes(text_B)
+        new_prompt = self.get_prompt(attribute_values_A, attribute_values_B, prompt_type)
+        clear_text_A = self.remove_attributes(text_A)
+        clear_text_B = self.remove_attributes(text_B)
         prompt = "(" + ','.join(new_prompt[::-1]) + ")"
         full_prompt = clear_text_A + ',' + clear_text_B + ',' + prompt
-
-        start_index_A = clear_text_A.find("<lora:") + len("<lora:")
-        end_index_A = clear_text_A.find(":", start_index_A)
-        name_A = clear_text_A[start_index_A:end_index_A]
-
-        start_index_B = clear_text_B.find("<lora:") + len("<lora:")
-        end_index_B = clear_text_B.find(":", start_index_B)
-        name_B = clear_text_B[start_index_B:end_index_B]
-
-        return (prompt, full_prompt, clear_text_A, clear_text_B, name_A, name_B)
+        name_A = self.get_name(clear_text_A)
+        name_B = self.get_name(clear_text_B)
+        return prompt, full_prompt, clear_text_A, clear_text_B, name_A, name_B
 
 
-class SANMIN_SimpleWildcards:
+class SANMIN_ClothingWildcards:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -825,6 +843,68 @@ class SANMIN_SimpleWildcards:
         prompt = re.sub(r"\[.*?\]", "", populated_text)
         return (prompt.strip(), cfg, exposure, skin)
 
+
+class SANMIN_SimpleWildcards:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "wildcard_text": ("STRING", {"multiline": True, "dynamicPrompts": True}),
+            },
+        }
+
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt",)
+    FUNCTION = "doit"
+
+    # 查找输入的通配符文本，并返回文本列表。
+    def find_matching_files(self, wildcard_text):
+        wildcard_names = re.findall(r"__(.*?)__", wildcard_text)
+        matching_files = []
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for wildcard_name in wildcard_names:
+            file_path = os.path.join(script_dir, "wildcards", f"{wildcard_name}.txt")
+            if os.path.exists(file_path):
+                matching_files.append(file_path)
+            else:
+                matching_files.append(f"未查到该路径: {file_path}")
+        return matching_files
+    # 查找通配符为对应的文本，并返回随机一行。
+    def replace_wildcards(self, wildcard_text):
+        matching_files = self.find_matching_files(wildcard_text)
+        for file_path in matching_files:
+            if file_path.startswith("未查到该路径:"):
+                continue
+            file_content = self.get_file_content(file_path)
+            wildcard_name = os.path.basename(file_path).split(".")[0]
+            wildcard_lines = file_content.splitlines()
+            wildcard_text = re.sub(re.escape(f"__{wildcard_name}__"), random.choice(wildcard_lines), wildcard_text)
+        return wildcard_text
+    # 读取通配符文本内容，并返回字符串。
+    def get_file_content(self, file_path):
+        with open(file_path, "r", encoding="utf-8") as file:
+            file_content = file.read()
+        return file_content.strip()
+
+    def doit(self, wildcard_text):
+        matching_files = self.find_matching_files(wildcard_text)
+        for file_path in matching_files:
+            print("查找到的文件路径：",file_path)
+
+        prompt = self.replace_wildcards(wildcard_text)
+
+
+        # 去除属性部分，只返回正文部分
+        return (prompt.strip(),)
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        Nu = SANMIN_SimpleWildcards.doit(kwargs['wildcard_text'])
+        prompt = Nu.replace_wildcards()
+
+        return (prompt,)
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
@@ -832,7 +912,8 @@ NODE_CLASS_MAPPINGS = {
     "Samin Counter": SANMI_CounterNode,
     "Image Load with Metadata ": SAMIN_Read_Prompt,
     "SAMIN String Attribute Selector": SAMIN_String_Attribute_Selector,
-    "SAMIN SimpleWildcards":SANMIN_SimpleWildcards,
+    "SANMIN ClothingWildcards":SANMIN_ClothingWildcards,
+    "SANMIN SimpleWildcards":SANMIN_SimpleWildcards,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
@@ -841,7 +922,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Samin Counter": "Samin Counter",
     "Image Load with Metadata ": "SAMIN_Read_Prompt",
     "SAMIN String Attribute Selector": "AMIN_String_Attribute_Selector",
-    "SAMIN SimpleWildcards":"SANMIN_Simple_Wildcards",
+    "SANMIN ClothingWildcards":"SANMIN_ClothingWildcards",
+    "SANMIN SimpleWildcards":"SANMIN_SimpleWildcards",
 }
 
 
