@@ -1,5 +1,5 @@
 # ComfyUI-GPT4V-Image-Captioner
-Fill in the key and URL to quickly call GPT4V to annotate images
+Fill in the key and URL to quickly call GPT4V to annotate images. This project includes code derived from the GPT4V-Image-Captioner repository (https://github.com/jiayev/GPT4V-Image-Captioner). The code has been modified to fit the specific requirements of this project. We would like to express our sincere gratitude to the original authors of the GPT4V-Image-Captioner repository for their valuable contribution.
 
 ### Input Image Processing:
 The project automatically handles image processing, eliminating the need for manual scaling.
