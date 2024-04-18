@@ -16,7 +16,7 @@
 
 #import cv2
 #from deepface import DeepFace
-
+import pandas as pd
 import latent_preview
 from datetime import datetime
 import piexif
@@ -56,8 +56,16 @@ from tqdm import tqdm
 import string
 from PIL import Image,ImageOps
 import inspect
-
-
+from nodes import PreviewImage
+from torchvision.transforms.functional import pil_to_tensor, to_tensor
+from server import PromptServer
+from comfy.model_management import InterruptProcessingException
+from aiohttp import web
+from torchvision import transforms
+import folder_paths
+from comfy.cli_args import args
+from nodes import PreviewImage, SaveImage
+import string
 
 #filepath：存储数据的JSON文件的路径。
 #data：从JSON文件读取的数据的字典。
@@ -315,8 +323,8 @@ class SAMIN_Load_Image_Batch:
             }
         }
 
-    RETURN_TYPES = ("IMAGE","STRING","STRING")
-    RETURN_NAMES = ("image","filename_text","image_path")
+    RETURN_TYPES = ("IMAGE","STRING","STRING","INT",)
+    RETURN_NAMES = ("image","filename_text","image_path","isTrue")
     FUNCTION = "load_batch_images"
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
@@ -346,10 +354,10 @@ class SAMIN_Load_Image_Batch:
                 print(f"No valid image was found for the next ID. Did you remove images from the source directory?")
                 return (None, None,None)
         if mode == 'number_image':
-            image, filename, single_image_path = fl.get_image_by_number(image_number)
+            image, filename, single_image_path ,isTrue= fl.get_image_by_number(image_number)
             if image == None:
                 print(f"No valid image was found for the next ID. Did you remove images from the source directory?")
-                return (self.create_black_image(), None, None)
+                return (self.create_black_image(), None, None, isTrue)
         else:
             newindex = int(random.random() * len(fl.image_paths))
             image, filename = fl.get_image_by_id(newindex)
@@ -370,7 +378,7 @@ class SAMIN_Load_Image_Batch:
             filename = os.path.splitext(filename)[0]
 
         # 返回将图像转换为张量后的图像和文件名
-        return (pil2tensor(image), filename, single_image_path)
+        return (pil2tensor(image), filename, single_image_path, isTrue)
 
 
     class BatchImageLoader:
@@ -404,6 +412,7 @@ class SAMIN_Load_Image_Batch:
                     self.image_paths.append(abs_file_path)
 
         def get_image_by_number(self, image_number):
+            isTrue = 2
             for file_name in self.image_paths:
                 single_image_path = file_name
                 file_name_only = os.path.basename(file_name)
@@ -411,11 +420,14 @@ class SAMIN_Load_Image_Batch:
                 file_number = file_name_only.split(',')[0]
                 # 提取数字部分
                 file_number = ''.join(filter(str.isdigit, file_number))
+                if file_number == "":
+                    continue
                 if int(image_number) == int(file_number):
                     i = Image.open(file_name)
                     i = ImageOps.exif_transpose(i)
-                    return (i, os.path.basename(file_name),single_image_path)
-            return self.create_black_image(), f"编号{image_number}对应图像不存在，输出512*512黑色图像" , None
+                    isTrue = 1
+                    return (i, os.path.basename(file_name),single_image_path,isTrue)
+            return (self.create_black_image(), f"编号{image_number}对应图像不存在，输出512*512黑色图像" , None , isTrue,)
 
         def get_image_by_id(self, image_id):
 
@@ -905,6 +917,252 @@ class SANMIN_SimpleWildcards:
 
         return (prompt,)
 
+class SimpleBatchImageLoader:
+  def __init__(self, path, pattern='*'):
+    self.path = path
+    self.pattern = pattern
+
+  def get_images(self):
+    images = []
+    # Iterate over files in the specified path
+    for file in os.listdir(self.path):
+      # Check if the file matches the pattern
+      if file.endswith(self.pattern):
+        # Add the file to the list of images
+        images.append(os.path.join(self.path, file))
+    return images
+
+
+class LoadPathImagesPreview(PreviewImage):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "path": ("STRING", {"default": '', "multiline": False}),
+                "pattern": ("STRING", {"default": '*', "multiline": False}),
+            },
+        }
+
+    NAME = "Images_Preview"
+    FUNCTION = "preview_images"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    class BatchImageLoader:
+        def __init__(self, directory_path, pattern):
+            self.image_paths = []
+            self.load_images(directory_path, pattern)
+            self.image_paths.sort()
+
+        def load_images(self, directory_path, pattern):
+            for file_name in glob.glob(os.path.join(glob.escape(directory_path), pattern), recursive=True):
+                if file_name.lower().endswith(ALLOWED_EXT):
+                    abs_file_path = os.path.abspath(file_name)
+                    self.image_paths.append(abs_file_path)
+
+    def get_image_by_path(self, image_path):
+        image = Image.open(image_path)
+        image = ImageOps.exif_transpose(image)
+        return image
+
+    def preview_images(self, path, pattern='*', filename_prefix="sanmin.preview.", prompt=None, extra_pnginfo=None):
+        fl = self.BatchImageLoader(path, pattern)
+        images = []
+        for image_path in fl.image_paths:
+            image = Image.open(image_path)
+            tensor_image = pil2tensor(image)
+            image = tensor_image[0]
+            images.append(image)
+        if not images:
+            raise ValueError("No images found in the specified path")
+
+        return self.save_images(images, filename_prefix, prompt, extra_pnginfo)
+
+def generate_random_string(length):
+    letters = string.ascii_letters + string.digits
+    return ''.join(random.choice(letters) for _ in range(length))
+
+class SanmiSaveImageToLocal:
+
+  def __init__(self):
+    self.output_dir = folder_paths.get_output_directory()
+    self.type = "output"
+    self.prefix_append = ""
+    self.compress_level = 4
+
+  @classmethod
+  def INPUT_TYPES(s):
+    return {"required":
+              {
+                "images": ("IMAGE",),
+                "filename_prefix": ("STRING", {"default": "ComfyUI"}),
+                "file_path": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
+                "isTrue": ("INT", {"default": 0}),
+                "only_preview": ("BOOLEAN", {"default": False}),
+              },
+              "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+            }
+
+  RETURN_TYPES = ()
+  FUNCTION = "save"
+  OUTPUT_NODE = True
+  NAME = "Save images"
+  CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+  def save(self, images, file_path , isTrue=0, filename_prefix="ComfyUI", only_preview=False, prompt=None, extra_pnginfo=None):
+    Afilename = filename_prefix
+
+    if isTrue == 2:
+        return ()
+    if only_preview:
+      PreviewImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+      return ()
+    filename_prefix = os.path.basename(file_path)
+    if file_path == '':
+        filename_prefix = "ComfyUI"
+
+    filename_prefix, _ = os.path.splitext(filename_prefix)
+
+    _, extension = os.path.splitext(file_path)
+
+    if extension:
+        # 是文件名，需要处理
+        file_path = os.path.dirname(file_path)
+        # filename_prefix=
+
+    full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+        filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
+
+    if not os.path.exists(file_path):
+        # 使用os.makedirs函数创建新目录
+        os.makedirs(file_path)
+        print("目录已创建")
+    else:
+        print("目录已存在")
+
+    # 使用glob模块获取当前目录下的所有文件
+    if file_path == "":
+        files = glob.glob(full_output_folder + '/*')
+    else:
+        files = glob.glob(file_path + '/*')
+    # 统计文件数量
+    file_count = len(files)
+    counter += file_count
+
+    results = list()
+    for image in images:
+        i = 255. * image.cpu().numpy()
+        img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+        metadata = None
+        if not args.disable_metadata:
+            metadata = PngInfo()
+            if prompt is not None:
+                metadata.add_text("prompt", json.dumps(prompt))
+            if extra_pnginfo is not None:
+                for x in extra_pnginfo:
+                    metadata.add_text(x, json.dumps(extra_pnginfo[x]))
+
+        file = f"{Afilename}.png"
+
+        if file_path == "":
+            fp = os.path.join(full_output_folder, file)
+            if os.path.exists(fp):
+                file = f"{Afilename},{generate_random_string(8)}.png"
+                fp = os.path.join(full_output_folder, file)
+            img.save(fp, pnginfo=metadata, compress_level=self.compress_level)
+            results.append({
+                "filename": file,
+                "subfolder": subfolder,
+                "type": self.type
+            })
+
+        else:
+
+            fp = os.path.join(file_path, file)
+            if os.path.exists(fp):
+                file = f"{Afilename},{generate_random_string(8)}.png"
+                fp = os.path.join(file_path, file)
+
+            img.save(os.path.join(file_path, file), pnginfo=metadata, compress_level=self.compress_level)
+            results.append({
+                "filename": file,
+                "subfolder": file_path,
+                "type": self.type
+            })
+        counter += 1
+
+    return ()
+
+class SANMI_ConvertToEnglish:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "number": ("STRING", {"multiline": False, "default": "",}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "gogo"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    @staticmethod
+    def gogo(number):
+        mapping = {str(i): letter for i, letter in enumerate(string.ascii_uppercase)}
+        output_string = ""
+        for char in number:
+            if char.isdigit():
+                if char in mapping:
+                    output_string += mapping[char]
+                else:
+                    output_string += char
+            else:
+                output_string += char
+        return (output_string,)
+
+class SANMI_ChineseToCharacter:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "chinese_name": ("STRING", {"multiline": False, "default": "填写角色中文名",}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "find_character"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    @staticmethod
+    # 读取角色英文名
+    def find_character(chinese_name):
+        # 获取当前代码文件的目录路径
+        code_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # 构建文件的完整路径
+        file_path = os.path.join(code_dir, "animagine-xl-3.1-characterfull-zh.txt")
+
+        # Read the file
+        df = pd.read_csv(file_path, sep=",|#", engine='python', header=None)
+
+        # Rename columns
+        df.columns = ["Gender", "Character_EN", "Anime_EN", "Character_CN", "Anime_CN"]
+
+        # Find character
+        result = df[df['Character_CN'].str.contains(chinese_name)]
+
+        # If result is found, return the corresponding information
+        if not result.empty:
+            gender = result['Gender'].values[0]
+            character_en = result['Character_EN'].values[0]
+            anime_en = result['Anime_EN'].values[0]
+            character = f"{gender}, {character_en}, {anime_en}"
+
+            return (character,)
+        else:
+            return ("Character not found",)
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
@@ -914,16 +1172,24 @@ NODE_CLASS_MAPPINGS = {
     "SAMIN String Attribute Selector": SAMIN_String_Attribute_Selector,
     "SANMIN ClothingWildcards":SANMIN_ClothingWildcards,
     "SANMIN SimpleWildcards":SANMIN_SimpleWildcards,
+    "SANMIN LoadPathImagesPreview": LoadPathImagesPreview,
+    "SANMIN SanmiSaveImageToLocal": SanmiSaveImageToLocal,
+    "SANMIN ConvertToEnglish": SANMI_ConvertToEnglish,
+    "SANMIN ChineseToCharacter": SANMI_ChineseToCharacter,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Samin Load Image Batch": "Samin Load Image Batch",
-    "Samin Counter": "Samin Counter",
-    "Image Load with Metadata ": "SAMIN_Read_Prompt",
-    "SAMIN String Attribute Selector": "AMIN_String_Attribute_Selector",
-    "SANMIN ClothingWildcards":"SANMIN_ClothingWildcards",
-    "SANMIN SimpleWildcards":"SANMIN_SimpleWildcards",
+    "Samin Load Image Batch": "Load Image Batch",
+    "Samin Counter": "Counter",
+    "Image Load with Metadata ": "Read_Prompt",
+    "SAMIN String Attribute Selector": "String_Attribute_Selector",
+    "SANMIN ClothingWildcards":"ClothingWildcards",
+    "SANMIN SimpleWildcards":"SimpleWildcards",
+    "SANMIN LoadPathImagesPreview": "LoadPathImagesPreview",
+    "SANMIN SanmiSaveImageToLocal": "SanmiSaveImageToLocal",
+    "SANMIN ConvertToEnglish": "ConvertToEnglish",
+    "SANMIN ChineseToCharacter": "ChineseToCharacter",
 }
 
 
