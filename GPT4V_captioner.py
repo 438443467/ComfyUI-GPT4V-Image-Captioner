@@ -154,7 +154,7 @@ def remove_exclude_words(caption, exclude_words):
     clean_caption = re.sub(r'(, )+', ', ', clean_caption)
     return clean_caption.strip(', ')
     
-#添加提示词
+# 添加提示词
 def add_words_to_caption(caption, add_words):
     # Add a comma after the caption and append the additional words
     updated_caption = caption + ', ' + add_words
@@ -211,6 +211,7 @@ cached_result = None
 cached_seed = None
 cached_image = None
 cached_full_caption = None
+cached_custom_prompt = None
 
 class GPTCaptioner:
     def __init__(self):
@@ -228,9 +229,14 @@ class GPTCaptioner:
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
                 "prompt_type": (["generic", "figure"], {"default": "generic"}),
                 "img_quality": (["auto", "high", "low"], {"default": "auto"}),
-                "timeout":("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 30, "display": "number"}),
+                "timeout": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 30, "display": "number"}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
-                "weight" : ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.01, "default": 1}), 
+                "weight" : ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.01, "default": 1}),
+                "custom_prompt": ("STRING",
+                                   {
+                                       "default": "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image.",
+                                       "multiline": True, "dynamicPrompts": False
+                                   }),
                 "exclude_words": ("STRING",
                                    {
                                        "default": "",
@@ -268,27 +274,28 @@ class GPTCaptioner:
 
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
     @staticmethod
-    def run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, quality, timeout=30):
-        global cached_result, cached_seed, cached_image , cached_full_caption
-        # 判断seed值和image值是否发生变化
-        if cached_seed is not None and cached_image is not None and cached_seed == seed and cached_image == image:
+    def run_openai_api(api_key, api_url, seed, prompt_type, img_quality, timeout, custom_prompt, exclude_words, add_words, image):
+        global cached_result, cached_seed, cached_image , cached_full_caption, cached_custom_prompt
+        # 判断seed值、image值、提示词是否发生变化
+        if cached_seed is not None and cached_image is not None and cached_custom_prompt is not None and cached_seed == seed and cached_image == image and cached_custom_prompt == custom_prompt:
             caption = cached_result
             caption = remove_exclude_words(caption, exclude_words)
             caption = add_words_to_caption(caption, add_words)
             full_caption = cached_full_caption
             return (caption,full_caption,)
-        
         generic_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
         figure_prompt = "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, composition, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, attire, actions, pose, expressions, accessories, makeup, composition type, etc.  Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. The final tag results should exclude the following tags: color, hair color, hairstyle, clothing color, wig, style, watermarks, signatures, text, logos, backgrounds, lighting, filters, styles. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image."
         image_base64 = image
-        
+
+        # 初始化prompt
+        prompt = ""
+
         if prompt_type == 'generic':
             prompt = generic_prompt
         elif prompt_type == 'figure':   
             prompt = figure_prompt
-        
-        
-        
+        if custom_prompt != generic_prompt:
+            prompt = custom_prompt
         data = {
             "model": "gpt-4-vision-preview",
             "messages": [
@@ -298,7 +305,7 @@ class GPTCaptioner:
                         {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {
                             "url": f"data:image/jpeg;base64,{image_base64}",
-                            "detail": f"{quality}"
+                            "detail": f"{img_quality}"
                         }
                          }
                     ]
@@ -354,7 +361,6 @@ class GPTCaptioner:
 
             # 剔除caption中包含在exclude_words中的单词
             caption = remove_exclude_words(caption, exclude_words)
-            
             # 增加提示词
             caption = add_words_to_caption(caption, add_words)
 
@@ -363,12 +369,10 @@ class GPTCaptioner:
             return (f"Failed to parse the API response: {e}\n{response.text}",None)
 
 
-    # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
-    def sanmi(self, api_key, api_url, exclude_words, image, seed, prompt_type, img_quality, weight,enable_weight, add_words,timeout):
-        try:
 
-            # 初始化 prompt
-            prompt = ""
+    # 根据用户输入的参数构建指令，并使用 GPT 模型进行请求，返回相应的结果。将之前的值进行转换
+    def sanmi(self, api_key, api_url, seed, prompt_type, img_quality, timeout, enable_weight, weight, custom_prompt, exclude_words, add_words, image):
+        try:
 
             # 如果 image 是 torch.Tensor 类型，则将其转换为 base64 编码的图像
             if isinstance(image, torch.Tensor):
@@ -378,7 +382,7 @@ class GPTCaptioner:
             image = process_image(image)
 
             # 请求 prompt
-            caption,full_caption = self.run_openai_api(image, api_key, api_url, exclude_words, seed, prompt_type, add_words, img_quality,timeout)
+            caption, full_caption = self.run_openai_api(api_key, api_url, seed, prompt_type, img_quality, timeout, custom_prompt, exclude_words, add_words, image)
             
             # 给 prompt 增加权重
             if enable_weight:
