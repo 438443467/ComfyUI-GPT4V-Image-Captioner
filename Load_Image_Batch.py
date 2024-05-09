@@ -316,7 +316,9 @@ class SAMIN_Load_Image_Batch:
                 "path": ("STRING", {"default": '', "multiline": False}),
                 "pattern": ("STRING", {"default": '*', "multiline": False}),
                 "allow_RGBA_output": (["false", "true"],),
+                "rename_images": (["false", "true"],),
                 "image_number": ("INT",{"default": 0, "min": 0, "max": 150000, "step": 1,"forceInput": False}),
+
             },
             "optional": {
                 "filename_text_extension": (["true", "false"],),
@@ -328,7 +330,7 @@ class SAMIN_Load_Image_Batch:
     FUNCTION = "load_batch_images"
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
-    def load_batch_images(self, path, pattern='*', index=0, mode="single_image", label='Batch 001', allow_RGBA_output='false', filename_text_extension='true', image_number=None):
+    def load_batch_images(self, path, pattern='*', index=0, mode="single_image", label='Batch 001', allow_RGBA_output='false', rename_images='false',filename_text_extension='true', image_number=None):
         single_image_path = ''
         allow_RGBA_output = (allow_RGBA_output == 'true')
 
@@ -341,6 +343,9 @@ class SAMIN_Load_Image_Batch:
         fl = self.BatchImageLoader(path, label, pattern)
         # 符合规则的图像升序的绝对路径列表
         new_paths = fl.image_paths
+
+        if mode == 'number_image' and path != 'C:' and rename_images == 'true':
+            fl.rename_images_with_sequence(path)
 
         # 根据加载模式选择加载图像的方式
         if mode == 'single_image':
@@ -465,6 +470,36 @@ class SAMIN_Load_Image_Batch:
         def create_black_image(self):
             # Creates a 512x512 black image
             return Image.fromarray(np.zeros((512, 512), dtype=np.uint8))
+
+        def rename_images_with_sequence(self, folder_path):
+
+            # 获取文件夹下所有文件
+            files = os.listdir(folder_path)
+            # 检查文件是否为图片文件
+            def is_valid_image(file):
+                return file.lower().endswith(ALLOWED_EXT)
+            # 获取第一张图片文件
+            first_image = next((file for file in files if is_valid_image(file)), None)
+            # 如果没有图片文件，则直接返回
+            if not first_image:
+                print("没有图片文件")
+                return
+
+            # 检查所有图片文件的前缀名是否为纯数字
+            all_prefixes_are_digits = all(os.path.splitext(file)[0].isdigit() for file in files if is_valid_image(file))
+            if all_prefixes_are_digits:
+                print("所有图片文件的前缀名都为纯数字，放弃重命名")
+                return
+
+            # 重命名图片文件
+            for i, file in enumerate(files):
+                if is_valid_image(file):
+                    ext = os.path.splitext(file)[1]
+                    new_name = f"{i:03d}{ext}"
+                    old_path = os.path.join(folder_path, file)
+                    new_path = os.path.join(folder_path, new_name)
+                    os.rename(old_path, new_path)
+            print("图片文件已成功重命名")
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -994,10 +1029,11 @@ class SanmiSaveImageToLocal:
     return {"required":
               {
                 "images": ("IMAGE",),
-                "filename_prefix": ("STRING", {"default": "ComfyUI"}),
+                "filename": ("STRING", {"default": "ComfyUI"}),
                 "file_path": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
                 "isTrue": ("INT", {"default": 0}),
-                "only_preview": ("BOOLEAN", {"default": False}),
+                "generate_txt": ("BOOLEAN", {"default": False}),
+                "txt_content": ("STRING", {"multiline": True, "default": "", "hidden": True})
               },
               "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
             }
@@ -1008,29 +1044,12 @@ class SanmiSaveImageToLocal:
   NAME = "Save images"
   CATEGORY = "Sanmi Simple Nodes/Simple NODE"
 
-  def save(self, images, file_path , isTrue=0, filename_prefix="ComfyUI", only_preview=False, prompt=None, extra_pnginfo=None):
-    Afilename = filename_prefix
-
+  def save(self, images, file_path , isTrue=0, filename="ComfyUI", prompt=None, extra_pnginfo=None, generate_txt=False, txt_content=""):
     if isTrue == 2:
         return ()
-    if only_preview:
-      PreviewImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
-      return ()
-    filename_prefix = os.path.basename(file_path)
-    if file_path == '':
-        filename_prefix = "ComfyUI"
-
-    filename_prefix, _ = os.path.splitext(filename_prefix)
-
-    _, extension = os.path.splitext(file_path)
-
-    if extension:
-        # 是文件名，需要处理
-        file_path = os.path.dirname(file_path)
-        # filename_prefix=
-
-    full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
-        filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
+    if file_path == "":
+        SaveImage().save_images(images, filename, prompt, extra_pnginfo)
+        return ()
 
     if not os.path.exists(file_path):
         # 使用os.makedirs函数创建新目录
@@ -1039,57 +1058,20 @@ class SanmiSaveImageToLocal:
     else:
         print("目录已存在")
 
-    # 使用glob模块获取当前目录下的所有文件
-    if file_path == "":
-        files = glob.glob(full_output_folder + '/*')
-    else:
-        files = glob.glob(file_path + '/*')
-    # 统计文件数量
-    file_count = len(files)
-    counter += file_count
-
-    results = list()
     for image in images:
         i = 255. * image.cpu().numpy()
         img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-        metadata = None
-        if not args.disable_metadata:
-            metadata = PngInfo()
-            if prompt is not None:
-                metadata.add_text("prompt", json.dumps(prompt))
-            if extra_pnginfo is not None:
-                for x in extra_pnginfo:
-                    metadata.add_text(x, json.dumps(extra_pnginfo[x]))
+        file = f"{filename}.png"
+        fp = os.path.join(file_path, file)
+        if os.path.exists(fp):
+            file = f"{filename},{generate_random_string(8)}.png"
+        img.save(os.path.join(file_path, file))
 
-        file = f"{Afilename}.png"
-
-        if file_path == "":
-            fp = os.path.join(full_output_folder, file)
-            if os.path.exists(fp):
-                file = f"{Afilename},{generate_random_string(8)}.png"
-                fp = os.path.join(full_output_folder, file)
-            img.save(fp, pnginfo=metadata, compress_level=self.compress_level)
-            results.append({
-                "filename": file,
-                "subfolder": subfolder,
-                "type": self.type
-            })
-
-        else:
-
-            fp = os.path.join(file_path, file)
-            if os.path.exists(fp):
-                file = f"{Afilename},{generate_random_string(8)}.png"
-                fp = os.path.join(file_path, file)
-
-            img.save(os.path.join(file_path, file), pnginfo=metadata, compress_level=self.compress_level)
-            results.append({
-                "filename": file,
-                "subfolder": file_path,
-                "type": self.type
-            })
-        counter += 1
-
+        if generate_txt:
+            txt_filename = os.path.splitext(file)[0] + ".txt"
+            txt_filepath = os.path.join(file_path, txt_filename)
+            with open(txt_filepath, "w") as f:
+                f.write(txt_content)
     return ()
 
 class SANMI_ConvertToEnglish:
@@ -1163,6 +1145,7 @@ class SANMI_ChineseToCharacter:
         else:
             return ("Character not found",)
 
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
@@ -1180,7 +1163,6 @@ NODE_CLASS_MAPPINGS = {
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Samin Load Image Batch": "Load Image Batch",
     "Samin Counter": "Counter",
     "Image Load with Metadata ": "Read_Prompt",
     "SAMIN String Attribute Selector": "String_Attribute_Selector",
@@ -1190,6 +1172,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SANMIN SanmiSaveImageToLocal": "SanmiSaveImageToLocal",
     "SANMIN ConvertToEnglish": "ConvertToEnglish",
     "SANMIN ChineseToCharacter": "ChineseToCharacter",
+    "SANMIN CropByMask": "CropByMask",
 }
 
 

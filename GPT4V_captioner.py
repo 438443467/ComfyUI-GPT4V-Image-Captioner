@@ -24,6 +24,19 @@ from PIL import Image
 from tqdm import tqdm
 from PIL import Image, ExifTags
 
+def log(message:str, message_type:str='info'):
+    name = 'GPTCaptioner'
+
+    if message_type == 'error':
+        message = '\033[1;41m' + message + '\033[m'
+    elif message_type == 'warning':
+        message = '\033[1;31m' + message + '\033[m'
+    elif message_type == 'finish':
+        message = '\033[1;32m' + message + '\033[m'
+    else:
+        message = '\033[1;33m' + message + '\033[m'
+    print(f"# {name} -> {message}")
+
 
 
 target_resolutions = [
@@ -204,7 +217,7 @@ class DalleImage:
         except Exception as e:
             print(f"Error in tensor_to_base64: {e}")
             traceback.print_exc()
-            return None
+            return f"Error in tensor_to_base64: {e}"
 
 # 初始化缓存变量
 cached_result = None
@@ -231,7 +244,7 @@ class GPTCaptioner:
                 "img_quality": (["auto", "high", "low"], {"default": "auto"}),
                 "timeout": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 30, "display": "number"}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
-                "weight" : ("FLOAT", {"max": 8.201, "min": 0.1, "step": 0.1, "display": "number", "round": 0.01, "default": 1}),
+                "weight" : ("FLOAT", {"max": 8.201, "min": 0.0, "step": 0.1, "display": "number", "round": 0.01, "default": 1}),
                 "custom_prompt": ("STRING",
                                    {
                                        "default": "As an AI image tagging expert, please provide precise tags for these images to enhance CLIP model's understanding of the content. Employ succinct keywords or phrases, steering clear of elaborate sentences and extraneous conjunctions. Prioritize the tags by relevance. Your tags should capture key elements such as the main subject, setting, artistic style, composition, image quality, color tone, filter, and camera specifications, and any other tags crucial for the image. When tagging photos of people, include specific details like gender, nationality, attire, actions, pose, expressions, accessories, makeup, composition type, age, etc. For other image categories, apply appropriate and common descriptive tags as well. Recognize and tag any celebrities, well-known landmark or IPs if clearly featured in the image. Your tags should be accurate, non-duplicative, and within a 20-75 word count range. These tags will use for image re-creation, so the closer the resemblance to the original image, the better the tag quality. Tags should be comma-separated. Exceptional tagging will be rewarded with $10 per image.",
@@ -269,7 +282,7 @@ class GPTCaptioner:
         except Exception as e:
             print(f"Error in clean_response_text: {e}")
             traceback.print_exc()
-            return None
+            return f"Error in clean_response_text: {e}"
 
 
     # 调用 OpenAI API，将图像和文本提示发送给 API 并获取生成的文本描述，处理可能出现的异常情况，并返回相应的结果或错误信息。
@@ -347,13 +360,13 @@ class GPTCaptioner:
                 return f"API error: {response_data['error']['message']}"
 
             caption = response_data["choices"][0]["message"]["content"]
-
             full_caption = caption
             # 更新缓存变量
             cached_result = caption
             cached_seed = seed
             cached_image = image
             cached_full_caption = full_caption
+            cached_custom_prompt = custom_prompt
 
             # 剔除caption中所有颜色和发型
             if prompt_type == 'figure':
@@ -382,8 +395,14 @@ class GPTCaptioner:
             image = process_image(image)
 
             # 请求 prompt
-            caption, full_caption = self.run_openai_api(api_key, api_url, seed, prompt_type, img_quality, timeout, custom_prompt, exclude_words, add_words, image)
-            
+            result = self.run_openai_api(api_key, api_url, seed, prompt_type, img_quality, timeout, custom_prompt, exclude_words, add_words, image)
+
+            # 检查解包结果是否正确
+            if len(result) != 2:
+                log(f"Please make sure that the KEY provided is a valid GPT4 key for image recognition, Error unpacking result: {result}", "error")
+
+            caption, full_caption = result
+
             # 给 prompt 增加权重
             if enable_weight:
                 caption = add_weight_to_prompt(caption, weight)
@@ -392,7 +411,7 @@ class GPTCaptioner:
         except Exception as e:
             print(f"Error in sanmi: {e}")
             traceback.print_exc()
-            return None
+            return (f"Error in sanmi: {e}",None,)
 
 #定义功能和模块名称
 # NOTE: names should be globally unique
