@@ -16,24 +16,37 @@
 
 #import cv2
 #from deepface import DeepFace
-import pandas as pd
-import latent_preview
-from datetime import datetime
-import piexif
-import piexif.helper
+
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps, ImageDraw, ImageChops, ImageFont
 from PIL.PngImagePlugin import PngInfo
 from io import BytesIO
 from typing import Optional, Union, List
 from urllib.request import urlopen
+from datetime import datetime
+from comfy_extras.chainner_models import model_loading
+from comfy.model_management import InterruptProcessingException
+from comfy.cli_args import args
+from nodes import PreviewImage, SaveImage
+from numba import jit
+from tqdm import tqdm
+from torchvision.transforms.functional import pil_to_tensor, to_tensor
+from server import PromptServer
+from aiohttp import web
+from torchvision import transforms
+from PIL import Image as PilImage, ImageEnhance
+
+import pandas as pd
+import latent_preview
+import piexif
+import piexif.helper
 import comfy.diffusers_convert
 import comfy.samplers
 import comfy.sd
 import comfy.utils
 import comfy.clip_vision
 import comfy.model_management
+import cv2
 import folder_paths as comfy_paths
-from comfy_extras.chainner_models import model_loading
 import ast
 import glob
 import hashlib
@@ -41,7 +54,6 @@ import json
 import nodes
 import math
 import numpy as np
-from numba import jit
 import os
 import random
 import re
@@ -52,20 +64,11 @@ import sys
 import datetime
 import time
 import torch
-from tqdm import tqdm
 import string
-from PIL import Image,ImageOps
 import inspect
-from nodes import PreviewImage
-from torchvision.transforms.functional import pil_to_tensor, to_tensor
-from server import PromptServer
-from comfy.model_management import InterruptProcessingException
-from aiohttp import web
-from torchvision import transforms
 import folder_paths
-from comfy.cli_args import args
-from nodes import PreviewImage, SaveImage
-import string
+
+
 
 #filepath：存储数据的JSON文件的路径。
 #data：从JSON文件读取的数据的字典。
@@ -265,8 +268,11 @@ class WASDatabase:
 WDB = WASDatabase(WAS_DATABASE)
 # PIL to Tensor
 def pil2tensor(image):
-
     return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
+
+# Tensor to PIL (grabbed from WAS Suite)
+def tensor2pil(image: torch.Tensor) -> Image.Image:
+    return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
 #将新的图片路径添加到历史记录中。
 def update_history_images(new_paths):
@@ -1146,8 +1152,172 @@ class SANMI_ChineseToCharacter:
             return ("Character not found",)
 
 
+class SANMIN_AdjustTransparency:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+                "invert": ("BOOLEAN", {"default": False}),
+                "complete_elimination": ("BOOLEAN", {"default": False}),
+                "opacity": ("FLOAT", {"default": 100, "min": 0, "max": 100, "step": 5}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "adjust_transparency"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+    def adjust_transparency(self, image, mask, opacity, invert=False, complete_elimination=False):
+
+        # Convert the image tensor to a PIL Image
+        image = tensor2pil(image)
+        # Convert the mask tensor to a PIL Image
+        mask = tensor2pil(mask)
+
+        # Convert the mask to grayscale
+        mask = mask.convert('L')
+
+        # Invert the mask if required
+        if invert:
+            mask = ImageOps.invert(mask)
+
+        # Apply the mask to the image
+        if complete_elimination:
+            # Create a new image with the same size as the original image
+            new_image = Image.new('RGBA', image.size, (0, 0, 0, 0))
+            # Paste the original image onto the new image, but only where the mask is not zero
+            new_image.paste(image, mask=mask)
+            image = new_image
+        else:
+            image.putalpha(mask)
+
+        # Adjust the opacity
+        r, g, b, a = image.split()
+        a = a.point(lambda x: int(x * (opacity / 100)))
+        image.putalpha(a)
+
+        return (pil2tensor(image),)
+
+
+class SANMIN_Adapt_Coordinates:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "coordinates": ("STRING", {"multiline": False, "forceInput": True}),
+                "width": ("INT", {"forceInput": True}),
+                "height": ("INT", {"forceInput": True}),
+            },
+        }
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("coord_str",)
+    FUNCTION = "adapt_coordinates"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def adapt_coordinates(self, coordinates, width, height):
+        scale_factor_x = round(width / 512)
+        scale_factor_y = round(height / 512)
+
+        coordinates_out = [
+            {
+                "x": coord["x"] * scale_factor_x if coord["x"] != 0 else 0,
+                "y": coord["y"] * scale_factor_y if coord["y"] != 0 else 0,
+            }
+            for coord in eval(coordinates)
+        ]
+
+        coordinates_out = str(coordinates_out)
+        print("coordinates_out1:", type(coordinates_out), coordinates_out)
+        return (coordinates_out,)
+
+
+class SCALE_AND_FILL_BLACK:
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "percentage": ("FLOAT", {"default": 100, "min": 1, "max": 100, "step": 5}),
+                "image": ("IMAGE", ),
+            },
+        }
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "scale_and_fill_black"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def scale_and_fill_black(self, percentage, image):
+
+        # Convert tensor to PIL image
+        pil_image = tensor2pil(image)
+
+        # Calculate the new size of the image based on the percentage
+        width, height = pil_image.size
+        new_width = int(width * (percentage / 100.0))
+        new_height = int(height * (percentage / 100.0))
+
+        # Resize the image using nearest-exact interpolation
+        pil_image = pil_image.resize((new_width, new_height), Image.NEAREST)
+
+        # Create a new image with the original size and fill it with black background
+        new_pil_image = Image.new('RGB', (width, height), (0, 0, 0))
+
+        # Paste the resized image onto the new image at the center
+        x = (width - new_width) // 2
+        y = (height - new_height) // 2
+        new_pil_image.paste(pil_image, (x, y))
+
+        # Convert the PIL image back to tensor
+        image = pil2tensor(new_pil_image)
+        return (image,)
+
+
+class Upscale_And_Original_Size:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "scale_by": ("FLOAT", {"default": 1.00, "min": 1.00, "max": 9.99, "step": 0.01}),
+                "image": ("IMAGE", ),
+            },
+        }
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "upscale_and_original_size"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def upscale_and_original_size(self, scale_by, image):
+        # Convert input image to PIL format
+        image_pil = tensor2pil(image)
+
+        # Calculate new size after upscaling
+        original_size = image_pil.size
+        new_width = int(original_size[0] * scale_by)
+        new_height = int(original_size[1] * scale_by)
+
+        # Resize the image using nearest neighbor interpolation
+        resized_image = image_pil.resize((new_width, new_height), resample=Image.NEAREST)
+
+        # Calculate crop box coordinates for center cropping
+        left = (new_width - original_size[0]) // 2
+        top = (new_height - original_size[1]) // 2
+        right = left + original_size[0]
+        bottom = top + original_size[1]
+
+        # Perform center crop on the resized image
+        cropped_image = resized_image.crop((left, top, right, bottom))
+
+        # Convert cropped image back to tensor format
+        cropped_image_tensor = pil2tensor(cropped_image)
+
+        return (cropped_image_tensor,)
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
+# 不能有下划线在命名时
 NODE_CLASS_MAPPINGS = {
     "Samin Load Image Batch": SAMIN_Load_Image_Batch,
     "Samin Counter": SANMI_CounterNode,
@@ -1159,6 +1329,10 @@ NODE_CLASS_MAPPINGS = {
     "SANMIN SanmiSaveImageToLocal": SanmiSaveImageToLocal,
     "SANMIN ConvertToEnglish": SANMI_ConvertToEnglish,
     "SANMIN ChineseToCharacter": SANMI_ChineseToCharacter,
+    "SANMIN AdjustTransparency": SANMIN_AdjustTransparency,
+    "SANMIN Adapt Coordinates": SANMIN_Adapt_Coordinates,
+    "SANMIN SCALE AND FILL BLACK": SCALE_AND_FILL_BLACK,
+    "SANMIN Upscale And Original Size": Upscale_And_Original_Size,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
@@ -1173,6 +1347,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SANMIN ConvertToEnglish": "ConvertToEnglish",
     "SANMIN ChineseToCharacter": "ChineseToCharacter",
     "SANMIN CropByMask": "CropByMask",
+    "SANMIN AdjustTransparency": "AdjustTransparency",
+    "SANMIN Adapt Coordinates": "Adapt_Coordinates",
+    "SANMIN SCALE AND FILL BLACK": "scale_and_fill_black",
+    "SANMIN Upscale And Original Size": "Upscale_And_Original_Size",
 }
 
 
