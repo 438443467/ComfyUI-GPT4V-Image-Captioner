@@ -12,8 +12,6 @@
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-
-
 #import cv2
 #from deepface import DeepFace
 
@@ -29,10 +27,11 @@ from comfy.cli_args import args
 from nodes import PreviewImage, SaveImage
 from numba import jit
 from tqdm import tqdm
-from torchvision.transforms.functional import pil_to_tensor, to_tensor
 from server import PromptServer
 from aiohttp import web
+from torchvision.transforms.functional import pil_to_tensor, to_tensor
 from torchvision import transforms
+import torch.nn.functional as F
 from PIL import Image as PilImage, ImageEnhance
 
 import pandas as pd
@@ -824,8 +823,8 @@ class SANMIN_ClothingWildcards:
         }
 
     CATEGORY = "Sanmi Simple Nodes/Simple NODE"
-    RETURN_TYPES = ("STRING", "FLOAT", "FLOAT", "FLOAT",)
-    RETURN_NAMES = ("prompt", "cfg", "exposure", "skin",)
+    RETURN_TYPES = ("STRING", "STRING", "FLOAT", "FLOAT", "FLOAT",)
+    RETURN_NAMES = ("full_prompt", "prompt", "cfg", "exposure", "skin",)
     FUNCTION = "doit"
     # 提取属性，并以字典形式返回
     def extract_attributes(self, populated_text):
@@ -869,7 +868,7 @@ class SANMIN_ClothingWildcards:
     def doit(self, wildcard_text):
         matching_files = self.find_matching_files(wildcard_text)
         for file_path in matching_files:
-            print("查找到的文件路径：",file_path)
+            print("ClothingWildcards查找到的文件路径：",file_path)
 
         populated_text = self.replace_wildcards(wildcard_text)
         attributes = self.extract_attributes(populated_text)
@@ -880,22 +879,50 @@ class SANMIN_ClothingWildcards:
 
         # 去除属性部分，只返回正文部分
         prompt = re.sub(r"\[.*?\]", "", populated_text)
-        return (prompt.strip(), cfg, exposure, skin)
+        return (populated_text, prompt.strip(), cfg, exposure, skin)
 
+
+class SANMIN_EditWildcards:
     @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        Nu = SANMIN_SimpleWildcards.doit(kwargs['wildcard_text'])
-        populated_text = Nu.replace_wildcards()
-        attributes = Nu.extract_attributes(populated_text)
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "wildcard_name": ("STRING", {"multiline": False, "dynamicPrompts": True}),
+                "replace": ("BOOLEAN", {"default": False}),
+                "replace_text": ("STRING", {"default": "", "multiline": True}),
+            },
+        }
 
-        cfg = float(attributes.get("cfg", 7))
-        exposure = float(attributes.get("exposure", 0))
-        skin = float(attributes.get("skin", 0))
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+    RETURN_TYPES = ("STRING", )
+    RETURN_NAMES = ("wildcard_name", )
+    FUNCTION = "doit"
 
-        # 去除属性部分，只返回正文部分
-        prompt = re.sub(r"\[.*?\]", "", populated_text)
-        return (prompt.strip(), cfg, exposure, skin)
+    # 查找输入的通配符文本，并返回文本列表。
+    def find_matching_files(self, wildcard_name,replace_text):
+        wildcard_names = re.findall(r"__(.*?)__", wildcard_name)
+        matching_files = []
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        for wildcard_name in wildcard_names:
+            file_path = os.path.join(script_dir, "wildcards", f"{wildcard_name}.txt")
+            if not os.path.exists(file_path):
+                with open(file_path, 'w') as f:
+                    f.write(replace_text)  # 创建空文件
+            matching_files.append(file_path)
+        return matching_files
 
+    def doit(self, wildcard_name, replace_text, replace):
+        matching_files = self.find_matching_files(wildcard_name, replace_text)
+        if replace:
+            for file_path in matching_files:
+                if os.path.exists(file_path) and replace_text:
+                    with open(file_path, 'w') as f:
+                        f.write(replace_text)
+                    print("查找到的需要替换的文件：", file_path)
+                    print("替换文本为：", replace_text)
+                else:
+                    print("未找到文件：", file_path)
+        return (wildcard_name,)
 
 class SANMIN_SimpleWildcards:
     @classmethod
@@ -943,11 +970,8 @@ class SANMIN_SimpleWildcards:
     def doit(self, wildcard_text):
         matching_files = self.find_matching_files(wildcard_text)
         for file_path in matching_files:
-            print("查找到的文件路径：",file_path)
-
+            print("SimpleWildcards查找到的文件路径：",file_path)
         prompt = self.replace_wildcards(wildcard_text)
-
-
         # 去除属性部分，只返回正文部分
         return (prompt.strip(),)
 
@@ -1315,6 +1339,83 @@ class Upscale_And_Original_Size:
 
         return (cropped_image_tensor,)
 
+
+def gaussian_kernel(kernel_size: int, sigma: float):
+    x, y = torch.meshgrid(torch.linspace(-1, 1, kernel_size), torch.linspace(-1, 1, kernel_size), indexing="ij")
+    d = torch.sqrt(x * x + y * y)
+    g = torch.exp(-(d * d) / (2.0 * sigma * sigma))
+    return g / g.sum()
+
+class SANMIN_BlurMaskArea:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+                "blur_radius": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 31,
+                    "step": 1
+                }),
+                "sigma": ("FLOAT", {
+                    "default": 1.0,
+                    "min": 0.1,
+                    "max": 10.0,
+                    "step": 0.1
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "blur_mask_area"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def blur_mask_area(self, image: torch.Tensor, mask: torch.Tensor, blur_radius: int, sigma: float):
+        if blur_radius == 0:
+            return (image,)
+
+        batch_size, height, width, channels = image.shape
+
+        kernel_size = blur_radius * 2 + 1
+        kernel = gaussian_kernel(kernel_size, sigma).repeat(channels, 1, 1).unsqueeze(1)
+
+        image = image.permute(0, 3, 1, 2)  # Torch wants (B, C, H, W) we use (B, H, W, C)
+        padded_image = F.pad(image, (blur_radius, blur_radius, blur_radius, blur_radius), 'reflect')
+        blurred = F.conv2d(padded_image, kernel, padding=kernel_size // 2, groups=channels)
+        blurred = blurred[:, :, blur_radius:-blur_radius, blur_radius:-blur_radius]
+
+        blurred = blurred.permute(0, 2, 3, 1)
+        image = image.permute(0, 2, 3, 1)
+
+        # Apply the mask to blend the blurred and original images
+        mask = mask.unsqueeze(-1).expand_as(image)
+        output_image = mask * blurred + (1 - mask) * image
+
+        return (output_image,)
+
+# 浮点数
+class Float:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {"value": ("FLOAT", {"default": 0, "step": 0.1})},
+        }
+
+    RETURN_TYPES = ("FLOAT",)
+    RETURN_NAMES = ("float",)
+    FUNCTION = "execute"
+    CATEGORY = "Sanmi Simple Nodes/Simple NODE"
+
+    def execute(self, value):
+        return (value,)
+
+
 #定义功能和模块名称
 # NOTE: names should be globally unique
 # 不能有下划线在命名时
@@ -1333,6 +1434,9 @@ NODE_CLASS_MAPPINGS = {
     "SANMIN Adapt Coordinates": SANMIN_Adapt_Coordinates,
     "SANMIN SCALE AND FILL BLACK": SCALE_AND_FILL_BLACK,
     "SANMIN Upscale And Original Size": Upscale_And_Original_Size,
+    "SANMIN BlurMaskArea": SANMIN_BlurMaskArea,
+    "SANMIN EditWildcards": SANMIN_EditWildcards,
+    "SANMIN Float": Float,
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
@@ -1351,6 +1455,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SANMIN Adapt Coordinates": "Adapt_Coordinates",
     "SANMIN SCALE AND FILL BLACK": "scale_and_fill_black",
     "SANMIN Upscale And Original Size": "Upscale_And_Original_Size",
+    "SANMIN BlurMaskArea": "sanmi_BlurMaskArea",
+    "SANMIN EditWildcards": "sanmi_EditWildcards",
+    "SANMIN Float": "sanmi_Float",
 }
 
 
