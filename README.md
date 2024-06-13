@@ -1,5 +1,5 @@
 # ComfyUI-GPT4V-Image-Captioner
-你可以通过填写KEY和URL快捷地调用GPT视觉模型进行识别和打标。该项目是我个人对GPT4V-Image-Captioner repository (https://github.com/jiayev/GPT4V-Image-Captioner)项目的移植，以方便在ComfyUI中快捷地使用GPT进行打标。我衷心感谢GPT4V-Image-Captioner存储库的原作者们，感谢他们的宝贵贡献。该项目临时储存了部分我的个人节点，导致项目显得混乱和臃肿，对此我计划逐步停止更新此项目，并将其拆分为ComfyUI-GPT4V-Image-Captioner和ComfyUI-SanMian-Nodes两个部分来发布。
+你可以通过填写KEY和URL快捷地调用GPT视觉模型进行识别和打标。该项目是我个人对 GPT4V-Image-Captioner repository(https://github.com/jiayev/GPT4V-Image-Captioner) 项目的移植，以方便在ComfyUI中快捷地使用GPT进行打标。我衷心感谢GPT4V-Image-Captioner存储库的原作者们，感谢他们的宝贵贡献。该项目临时储存了部分我的个人节点，导致项目显得混乱和臃肿，对此我计划逐步停止更新此项目，并将其拆分为ComfyUI-GPT4V-Image-Captioner和ComfyUI-SanMian-Nodes两个部分来发布。
 
 ### Input Image Processing:
 The project automatically handles image processing, eliminating the need for manual scaling.
