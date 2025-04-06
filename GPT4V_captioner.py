@@ -195,12 +195,12 @@ class GPTCaptioner:
 
         return {
             "required": {
-                "api_key": ("STRING", {"default": "", "multiline": False}),
-                "api_url": ("STRING", {"default": "", "multiline": False}),
+                "api_key": ("STRING", {"default": "", "multiline": False,"tooltip": "例如:sk-xxxx"}),
+                "api_url": ("STRING", {"default": "", "multiline": False,"tooltip": "例如:https://XXX/v1/chat/completions"}),
                 "seed": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 1, "display": "number"}),
                 "model": (["gpt-4-vision-preview", "gpt-4o", "gpt-4o-ca", "gpt-4-turbo"], {"default": "gpt-4o"}),
                 "img_quality": (["auto", "high", "low"], {"default": "auto"}),
-                "timeout": ("INT", {"max": 0xffffffffffffffff, "min": 1, "step": 1, "default": 30, "display": "number"}),
+                "timeout": ("INT", {"max": 999, "min": 1, "step": 1, "default": 30, "display": "number","tooltip": "设定超时时间,基于网络情况,必须提供足够的反应时间,过短会无法接受到返回的信息."}),
                 "enable_weight": ("BOOLEAN", {"default": False}),
                 "weight" : ("FLOAT", {"max": 8.201, "min": 0.0, "step": 0.1, "display": "number", "round": 0.01, "default": 1}),
                 "custom_prompt": ("STRING",
@@ -227,7 +227,7 @@ class GPTCaptioner:
     RETURN_NAMES = ("prompt","full_prompt",)
     FUNCTION = "gogo"
     OUTPUT_NODE = False
-    CATEGORY = "Sanmi Simple Nodes/GPT"
+    CATEGORY = "Sanmi Nodes/GPT"
 
     # 对排除词进行处理
     @staticmethod
