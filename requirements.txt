@@ -1,6 +1,0 @@
-scipy
-matplotlib
-Pillow
-tqdm
-requests
-torch
